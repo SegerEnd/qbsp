@@ -35,4 +35,4 @@ I wish these used whatever was in your project, but at the time of writing, wild
 | QBSP      | bevy_reflect | glam |
 |-----------|--------------|------|
 | 0.13-0.14 | 0.18         | 0.30 |
-| 0.15      | 0.19         | 0.32 |
+| 0.15-0.16 | 0.19         | 0.32 |
