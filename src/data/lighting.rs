@@ -14,6 +14,8 @@ use crate::{
 pub type GrayscaleLighting = Vec<u8>;
 pub type RgbLighting = Vec<[u8; 3]>;
 
+pub type LightingDir = Vec<[u8; 3]>;
+
 /// Lighting data stored in a BSP file or a neighboring LIT file.
 #[derive(Clone)]
 #[cfg_attr(feature = "bevy_reflect", derive(Reflect))]

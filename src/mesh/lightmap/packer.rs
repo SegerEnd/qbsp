@@ -148,8 +148,31 @@ impl<LM> DefaultLightmapPacker<LM> {
 	}
 }
 
+fn island_pixels(frame: Rect<UVec2>, size: UVec2, extrusion: u32) -> impl Iterator<Item = (UVec2, UVec2)> {
+	let [frame_width, frame_height] = frame.size().to_array();
+
+	(0..frame_width + extrusion * 2)
+		.filter(move |x| frame.min.x + x < size.x)
+		.flat_map(move |x| (0..frame_height + extrusion * 2).map(move |y| uvec2(x, y)))
+		.filter_map(move |offset| {
+			let dst = frame.min + offset;
+
+			(dst.y < size.y).then(|| {
+				let src = uvec2(
+					offset.x.saturating_sub(extrusion).min(frame_width - 1),
+					offset.y.saturating_sub(extrusion).min(frame_height - 1),
+				);
+
+				(dst, src)
+			})
+		})
+}
+
 pub type PerStyleLightmapPacker = DefaultLightmapPacker<PerStyleLightmapData>;
 pub type PerSlotLightmapPacker = DefaultLightmapPacker<[(image::RgbImage, LightmapStyle); 4]>;
+pub type LightingDirPacker = DefaultLightmapPacker<image::RgbImage>;
+
+const NEUTRAL_LIGHTING_DIR: [u8; 3] = [128, 128, 255];
 
 impl LightmapPacker for PerStyleLightmapPacker {
 	type Input = PerStyleLightmapData;
@@ -200,8 +223,6 @@ impl LightmapPacker for PerStyleLightmapPacker {
 		let [atlas_width, atlas_height] = atlas.size().to_array();
 
 		for (frame, lightmap_images) in &self.images {
-			let [frame_width, frame_height] = frame.size().to_array();
-
 			for (light_style, lightmap_image) in lightmap_images.inner() {
 				atlas
 					.modify_inner(|map| {
@@ -209,30 +230,63 @@ impl LightmapPacker for PerStyleLightmapPacker {
 							.entry(*light_style)
 							.or_insert_with(|| image::RgbImage::from_pixel(atlas_width, atlas_height, image::Rgb(self.settings.default_color)));
 
-						for x in 0..frame_width + self.settings.extrusion * 2 {
-							let global_x = frame.min.x + x;
-							if global_x >= size.x {
-								continue;
-							}
-
-							for y in 0..frame_height + self.settings.extrusion * 2 {
-								let global_y = frame.min.y + y;
-								if global_y >= size.y {
-									continue;
-								}
-
-								dst_image.put_pixel(
-									global_x,
-									global_y,
-									*lightmap_image.get_pixel(
-										x.saturating_sub(self.settings.extrusion).min(frame_width - 1),
-										y.saturating_sub(self.settings.extrusion).min(frame_height - 1),
-									),
-								);
-							}
+						for (dst, src) in island_pixels(*frame, size, self.settings.extrusion) {
+							dst_image.put_pixel(dst.x, dst.y, *lightmap_image.get_pixel(src.x, src.y));
 						}
 					})
 					.unwrap();
+			}
+		}
+
+		atlas
+	}
+}
+
+impl LightmapPacker for LightingDirPacker {
+	type Input = image::RgbImage;
+	type Output = image::RgbImage;
+
+	fn create_single_color_input(size: impl Into<UVec2>, _color: [u8; 3]) -> Self::Input {
+		let size = size.into();
+		image::RgbImage::from_pixel(size.x, size.y, image::Rgb(NEUTRAL_LIGHTING_DIR))
+	}
+
+	fn read_from_face(&self, view: LightmapPackerFaceView) -> Self::Input {
+		let UVec2 { x: width, y: height } = view.lm_info.extents.lightmap_size();
+		let dirs = view
+			.bsp
+			.bspx
+			.lighting_dir
+			.as_ref()
+			.filter(|_| view.face.lightmap_styles[0] != LightmapStyle::NONE);
+
+		match dirs {
+			Some(dirs) => image::RgbImage::from_fn(width, height, |x, y| {
+				image::Rgb(
+					dirs.get(view.lm_info.compute_lighting_index(0, x, y))
+						.copied()
+						.unwrap_or(NEUTRAL_LIGHTING_DIR),
+				)
+			}),
+			None => image::RgbImage::from_pixel(width, height, image::Rgb(NEUTRAL_LIGHTING_DIR)),
+		}
+	}
+
+	fn settings(&self) -> ComputeLightmapSettings {
+		self.settings
+	}
+
+	fn pack(&mut self, view: LightmapPackerFaceView, image: Self::Input) -> Result<Rect<UVec2>, ComputeLightmapAtlasError> {
+		self.allocate_and_push(view, image.width(), image.height(), image)
+	}
+
+	fn export(&self) -> Self::Output {
+		let size = self.total_size();
+		let mut atlas = image::RgbImage::from_pixel(size.x, size.y, image::Rgb(NEUTRAL_LIGHTING_DIR));
+
+		for (frame, src_image) in &self.images {
+			for (dst, src) in island_pixels(*frame, size, self.settings.extrusion) {
+				atlas.put_pixel(dst.x, dst.y, *src_image.get_pixel(src.x, src.y));
 			}
 		}
 
@@ -289,8 +343,6 @@ impl LightmapPacker for PerSlotLightmapPacker {
 		let mut styles = image::RgbaImage::from_pixel(size.x, size.y, image::Rgba([255; 4]));
 
 		for (frame, src_slots) in &self.images {
-			let [frame_width, frame_height] = frame.size().to_array();
-
 			for (slot_idx, (slot_image, style)) in src_slots.iter().enumerate() {
 				if *style == LightmapStyle::NONE {
 					continue;
@@ -298,29 +350,9 @@ impl LightmapPacker for PerSlotLightmapPacker {
 				let dst_image =
 					slots[slot_idx].get_or_insert_with(|| image::RgbImage::from_pixel(size.x, size.y, image::Rgb(self.settings.default_color)));
 
-				for x in 0..frame_width + self.settings.extrusion * 2 {
-					let global_x = frame.min.x + x;
-					if global_x >= size.x {
-						continue;
-					}
-
-					for y in 0..frame_height + self.settings.extrusion * 2 {
-						let global_y = frame.min.y + y;
-						if global_y >= size.y {
-							continue;
-						}
-
-						styles.get_pixel_mut(global_x, global_y).0[slot_idx] = style.0;
-
-						dst_image.put_pixel(
-							global_x,
-							global_y,
-							*slot_image.get_pixel(
-								x.saturating_sub(self.settings.extrusion).min(frame_width - 1),
-								y.saturating_sub(self.settings.extrusion).min(frame_height - 1),
-							),
-						);
-					}
+				for (dst, src) in island_pixels(*frame, size, self.settings.extrusion) {
+					styles.get_pixel_mut(dst.x, dst.y).0[slot_idx] = style.0;
+					dst_image.put_pixel(dst.x, dst.y, *slot_image.get_pixel(src.x, src.y));
 				}
 			}
 		}

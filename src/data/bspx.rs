@@ -15,7 +15,7 @@ use crate::{
 	BspData, BspParseError, BspParseResultDoingJobExt, BspResult, LumpEntry,
 	data::{
 		BspFace, LightmapOffset,
-		lighting::{LightmapStyle, RgbLighting, read_lit},
+		lighting::{LightingDir, LightmapStyle, RgbLighting, read_lit},
 		nodes::{FloatBoundingBox, ShortBsp29LeafContents},
 		texture::PlanarTextureProjection,
 		util::{BspVariableArray, FixedStr},
@@ -87,6 +87,7 @@ pub struct BspxData {
 	pub brush_list: Option<BrushList>,
 	pub decoupled_lm: Option<DecoupledLightmaps>,
 	pub face_normals: Option<FaceNormals>,
+	pub lighting_dir: Option<LightingDir>,
 
 	pub unparsed: HashMap<FixedStr<BSPX_ENTRY_NAME_LEN>, Vec<u8>>,
 }
@@ -131,6 +132,10 @@ impl BspxData {
 					check_duplicate!(face_normals);
 					data.face_normals = Some(FaceNormals::parse(BspByteReader::new(lump, &bsp_data.parse_ctx), &bsp_data.faces)?);
 				}
+				"LIGHTINGDIR" => {
+					check_duplicate!(lighting_dir);
+					data.lighting_dir = Some(read_lit(lump, &bsp_data.parse_ctx, true).job("Parsing LIGHTINGDIR BSPX lump")?);
+				}
 
 				// Lumps we don't know how to parse.
 				_ => {
@@ -156,6 +161,7 @@ impl BspxData {
 			&& self.brush_list.is_none()
 			&& self.decoupled_lm.is_none()
 			&& self.face_normals.is_none()
+			&& self.lighting_dir.is_none()
 			&& self.unparsed.is_empty()
 	}
 

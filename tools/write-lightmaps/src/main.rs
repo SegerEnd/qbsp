@@ -44,4 +44,16 @@ fn main() {
 			.save_with_format(format!("target/lightmaps/per-style/{}.png", style.0), image::ImageFormat::Png)
 			.unwrap();
 	}
+
+	match &data.bspx.lighting_dir {
+		Some(dirs) => {
+			eprintln!("Computing lighting direction atlas from {} LIGHTINGDIR samples", dirs.len());
+			let atlas = data.compute_lightmap_atlas(LightingDirPacker::new(lightmap_settings)).unwrap();
+			atlas
+				.data
+				.save_with_format("target/lightmaps/lighting-dir.png", image::ImageFormat::Png)
+				.unwrap();
+		}
+		None => eprintln!("No LIGHTINGDIR lump, recompile with `light -bspxlux`"),
+	}
 }

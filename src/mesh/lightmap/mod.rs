@@ -10,7 +10,7 @@ use thiserror::Error;
 
 mod packer;
 
-pub use packer::{DefaultLightmapPacker, LightmapPacker, LightmapPackerFaceView, PerSlotLightmapPacker, PerStyleLightmapPacker};
+pub use packer::{DefaultLightmapPacker, LightingDirPacker, LightmapPacker, LightmapPackerFaceView, PerSlotLightmapPacker, PerStyleLightmapPacker};
 
 use crate::{
 	BspData,
@@ -213,6 +213,12 @@ pub struct PerSlotLightmapData {
 impl LightmapAtlas for PerSlotLightmapData {
 	fn size(&self) -> UVec2 {
 		self.styles.dimensions().into()
+	}
+}
+
+impl LightmapAtlas for image::RgbImage {
+	fn size(&self) -> UVec2 {
+		self.dimensions().into()
 	}
 }
 
