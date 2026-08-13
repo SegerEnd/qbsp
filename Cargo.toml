@@ -15,7 +15,7 @@ license = "MIT OR Apache-2.0"
 name = "qbsp"
 readme = "readme.md"
 categories = ["game-development"]
-exclude = ["assets"]
+exclude = ["/assets", "/ci", "/tools", "/rustfmt.toml"]
 
 description.workspace = true
 version.workspace = true
